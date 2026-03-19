@@ -1,31 +1,62 @@
+from flask import Flask, request, jsonify
+from pybit.unified_trading import HTTP
 import threading
+import os
 
-def place_order_async(side, symbol, qty):
+app = Flask(__name__)
+
+session = HTTP(
+    testnet=False,
+    api_key=os.getenv("BYBIT_API_KEY"),
+    api_secret=os.getenv("BYBIT_API_SECRET")
+)
+
+@app.route("/")
+def home():
+    return "RUNNING", 200
+
+def place_order_async(data):
     try:
-        session.place_order(
+        side = data.get("side")
+        symbol = data.get("symbol")
+        qty = data.get("qty")
+
+        print(f"[ORDER START] side={side}, symbol={symbol}, qty={qty}")
+
+        result = session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             orderType="Market",
             qty=qty,
-            timeInForce="GoodTillCancel"
+            timeInForce="IOC"
         )
-    except Exception as e:
-        print("ORDER ERROR:", e)
 
+        print("[ORDER SUCCESS]", result)
+
+    except Exception as e:
+        print("[ORDER ERROR]", str(e))
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(silent=True) or {}
-    print("RAW DATA:", data)
+    try:
+        data = request.get_json(force=True)
+        print("[WEBHOOK RECEIVED]", data)
 
-    side = data.get("side", "Buy")
-    symbol = data.get("symbol", "BTCUSDT")
-    qty = data.get("qty", "0.001")
+        threading.Thread(target=place_order_async, args=(data,)).start()
 
-    threading.Thread(
-        target=place_order_async,
-        args=(side, symbol, qty)
-    ).start()
+        return jsonify({
+            "status": "received",
+            "message": "order is being processed"
+        }), 200
 
-    return jsonify({"status": "received"}), 200
+    except Exception as e:
+        print("[WEBHOOK ERROR]", str(e))
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
