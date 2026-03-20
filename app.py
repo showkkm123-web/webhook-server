@@ -1,61 +1,27 @@
-from flask import Flask, request, jsonify
-from pybit.unified_trading import HTTP
-import threading
-import os
-
-app = Flask(__name__)
-
-session = HTTP(
-    testnet=False,
-    api_key=os.getenv("BYBIT_API_KEY"),
-    api_secret=os.getenv("BYBIT_API_SECRET")
-)
-
-@app.route("/")
-def home():
-    return "RUNNING", 200
-
-def place_order_async(data):
-    try:
-        side = data.get("side")
-        symbol = data.get("symbol")
-        qty = data.get("qty")
-
-        print(f"[ORDER START] side={side}, symbol={symbol}, qty={qty}")
-
-        result = session.place_order(
-            category="linear",
-            symbol=symbol,
-            side=side,
-            orderType="Market",
-            qty=qty,
-            timeInForce="IOC"
-        )
-
-        print("[ORDER SUCCESS]", result)
-
-    except Exception as e:
-        print("[ORDER ERROR]", str(e))
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_json(force=True)
-        print("[WEBHOOK RECEIVED RAW]", data)
+        raw = request.get_data(as_text=True)
+        print("[WEBHOOK RAW]", raw)
 
-        # ✅ side 없는 데이터는 무시
-        if "side" not in data:
-            print("[SKIP] not our alert format")
+        data = request.get_json(silent=True)
+
+        # JSON 아니면 무조건 무시 (기본 전략 메시지)
+        if not isinstance(data, dict):
+            print("[SKIP] not json")
             return jsonify({"status": "ignored"}), 200
+
+        # 우리가 만든 형식만 통과
+        if "side" not in data or "symbol" not in data or "qty" not in data:
+            print("[SKIP] not our format:", data)
+            return jsonify({"status": "ignored"}), 200
+
+        print("[VALID SIGNAL]", data)
 
         threading.Thread(target=place_order_async, args=(data,)).start()
 
         return jsonify({"status": "received"}), 200
 
     except Exception as e:
-        print("[WEBHOOK ERROR]", str(e))
-        return jsonify({"status": "error"}), 400
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        print("[ERROR]", str(e))
+        return jsonify({"status": "ignored"}), 200
