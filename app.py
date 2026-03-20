@@ -41,21 +41,20 @@ def place_order_async(data):
 def webhook():
     try:
         data = request.get_json(force=True)
-        print("[WEBHOOK RECEIVED]", data)
+        print("[WEBHOOK RECEIVED RAW]", data)
+
+        # ✅ side 없는 데이터는 무시
+        if "side" not in data:
+            print("[SKIP] not our alert format")
+            return jsonify({"status": "ignored"}), 200
 
         threading.Thread(target=place_order_async, args=(data,)).start()
 
-        return jsonify({
-            "status": "received",
-            "message": "order is being processed"
-        }), 200
+        return jsonify({"status": "received"}), 200
 
     except Exception as e:
         print("[WEBHOOK ERROR]", str(e))
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 400
+        return jsonify({"status": "error"}), 400
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
